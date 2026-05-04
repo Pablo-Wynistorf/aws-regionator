@@ -1011,11 +1011,9 @@ body.no-scroll {
     radial-gradient(ellipse at 30% 20%, rgba(255, 153, 0, 0.05), transparent 60%),
     radial-gradient(ellipse at 70% 80%, rgba(88, 166, 255, 0.05), transparent 60%),
     var(--bg);
-  padding: 0.5rem;
-  min-height: 380px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 0;
+  min-height: 600px;
+  display: block;
 }
 
 .globe-section.collapsed .globe-stage {
@@ -1025,7 +1023,6 @@ body.no-scroll {
 .globe-svg {
   display: block;
   width: 100%;
-  max-width: 520px;
   height: auto;
   cursor: grab;
   touch-action: none;

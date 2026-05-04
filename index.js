@@ -970,6 +970,8 @@ const globe = {
   // Rotation in degrees: [lambda (lon), phi (lat)]. Positive lambda rotates west.
   rotation: [-20, -20],
   radius: 220,          // sphere radius in SVG viewport units (viewBox is 520x520)
+  defaultRotation: [-20, -20],
+  defaultRadius: 220,
   // Status-based dot size
   dotRadius: 4.2,
   draggedSinceMousedown: false,
@@ -977,6 +979,7 @@ const globe = {
   dragStart: null,      // { x, y, lambda, phi }
   hoveredRegion: null,
   worldRings: null,     // array of [[lon, lat], ...] rings, loaded async
+  lastCenteredQuery: null,
 };
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1096,12 +1099,59 @@ function buildGraticule() {
   return paths;
 }
 
+// Rotate the globe so the centroid of matching regions faces the viewer,
+// and zoom to fit them all comfortably in view. Only runs when the search
+// query changes, so manual dragging isn't fought against.
+function centerGlobeOnQuery() {
+  if (!els.globeSvg) return;
+  const query = (els.search?.value || "").trim();
+
+  // Query cleared — snap back to defaults.
+  if (!query) {
+    globe.rotation = [...globe.defaultRotation];
+    globe.radius = globe.defaultRadius;
+    globe.lastCenteredQuery = null;
+    return;
+  }
+
+  // Nothing to do if we already centered on this exact query.
+  if (query === globe.lastCenteredQuery) return;
+  globe.lastCenteredQuery = query;
+
+  const matches = search(query)
+    .map((r) => AIRPORT_COORDS[r.airport])
+    .filter(Boolean);
+  if (matches.length === 0) return;
+
+  // Spherical centroid via unit vectors (handles antimeridian correctly).
+  let sx = 0, sy = 0, sz = 0;
+  for (const [lon, lat] of matches) {
+    const la = lon * Math.PI / 180;
+    const ph = lat * Math.PI / 180;
+    const cp = Math.cos(ph);
+    sx += cp * Math.cos(la);
+    sy += cp * Math.sin(la);
+    sz += Math.sin(ph);
+  }
+  const mag = Math.hypot(sx, sy, sz);
+  if (mag < 1e-6) return; // antipodal points cancel out — don't rotate
+  sx /= mag; sy /= mag; sz /= mag;
+  const centroidLon = Math.atan2(sy, sx) * 180 / Math.PI;
+  const centroidLat = Math.asin(sz) * 180 / Math.PI;
+
+  // Set rotation so the centroid sits at (0, 0) on screen.
+  // project() rotates by adding globe.rotation[0] to lon, so we negate.
+  globe.rotation = [-centroidLon, centroidLat];
+  // Don't touch zoom — just rotate so the selection is centered. Users who
+  // want a closer look can scroll-zoom manually.
+  globe.radius = globe.defaultRadius;
+}
+
 function renderGlobe() {
   if (!els.globeSvg) return;
   const svg = els.globeSvg;
   // Clear
   while (svg.firstChild) svg.removeChild(svg.firstChild);
-
   // Sphere
   const sphere = document.createElementNS(SVG_NS, "circle");
   sphere.setAttribute("class", "globe-sphere");
@@ -1147,6 +1197,7 @@ function renderGlobe() {
   const activeCodes = new Set(
     currentQuery ? search(currentQuery).map((r) => r.regionCode) : []
   );
+  const filtering = currentQuery.length > 0;
 
   for (const region of state.regions) {
     const coords = AIRPORT_COORDS[region.airport];
@@ -1154,9 +1205,12 @@ function renderGlobe() {
     const [lon, lat] = coords;
     const p = project(lon, lat);
 
+    const isActive = activeCodes.has(region.regionCode);
+    // When search is active, skip non-matching regions entirely
+    if (filtering && !isActive) continue;
+
     const dot = document.createElementNS(SVG_NS, "circle");
     const isBuild = region.status === "BUILD";
-    const isActive = activeCodes.has(region.regionCode);
     dot.setAttribute("cx", p.x.toFixed(2));
     dot.setAttribute("cy", p.y.toFixed(2));
     dot.setAttribute("r", String(isActive ? globe.dotRadius + 2 : globe.dotRadius));
@@ -1279,6 +1333,9 @@ function initGlobe() {
     const dx = e.clientX - globe.dragStart.x;
     const dy = e.clientY - globe.dragStart.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) globe.draggedSinceMousedown = true;
+    // User is driving the view — forget the auto-center marker so a later
+    // search re-applies centering even if the query is the same.
+    globe.lastCenteredQuery = null;
     // Rotation sensitivity scales inversely with zoom. At the default radius
     // of 220, k ≈ 0.4 (1 pixel ≈ 0.4°). Zoom in and we turn more slowly so the
     // globe doesn't whip past the area you're trying to look at.
@@ -1303,6 +1360,7 @@ function initGlobe() {
         // Filter the region list to just this region by searching by its code
         els.search.value = code;
         render();
+        centerGlobeOnQuery();
         renderGlobe();
         // Scroll the matching card into view
         setTimeout(() => {
@@ -1389,6 +1447,7 @@ document.addEventListener("click", async (e) => {
 
 els.search.addEventListener("input", () => {
   render();
+  centerGlobeOnQuery();
   renderGlobe();
 });
 els.refreshBtn.addEventListener("click", async () => {
