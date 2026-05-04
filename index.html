@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS Regionator — Region Lookup</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Floating coverage alert (compact, top-right) -->
+  <div id="coverageAlert" class="coverage-alert hidden" role="alert" aria-live="polite"></div>
+
+  <header class="app-header">
+    <h1>AWS Regionator</h1>
+    <p class="tagline">Search AWS regions by airport code, region code, city, or country</p>
+  </header>
+
+  <main class="container">
+    <div class="search-box">
+      <input
+        type="search"
+        id="searchInput"
+        placeholder="Try: FRA, us-east-1, Zurich, Germany, govcloud, iso…"
+        autocomplete="off"
+        autofocus
+      />
+      <div class="search-meta">
+        <span id="resultCount">0 results</span>
+        <button id="refreshBtn" type="button" title="Refresh live service availability data">
+          <span class="refresh-icon">↻</span> Refresh live data
+        </button>
+      </div>
+    </div>
+
+    <div id="liveStatus" class="live-status"></div>
+
+    <div id="results" class="results" aria-live="polite"></div>
+
+    <div id="emptyState" class="empty-state hidden">
+      <p>No regions match your search. Try a different term.</p>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <p class="disclaimer">
+      <strong>Disclaimer:</strong> This tool is an independent, unofficial utility. It is not affiliated with, maintained, or endorsed by Amazon Web Services, Inc. Region metadata in <code>regions.json</code> is community-maintained and may be outdated. Live service and IP data are fetched from public AWS endpoints with no guarantee of availability or accuracy.
+    </p>
+    <p>
+      Local data: <code>regions.json</code> ·
+      Live sources:
+      <a href="https://api.regional-table.region-services.aws.a2z.com/index.json" target="_blank" rel="noopener">Regional Services Table</a> ·
+      <a href="https://ip-ranges.amazonaws.com/ip-ranges.json" target="_blank" rel="noopener">IP Ranges</a>
+    </p>
+  </footer>
+
+  <!-- First-visit disclaimer modal (blocking until acknowledged) -->
+  <div id="disclaimerBanner" class="disclaimer-modal hidden" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
+    <div class="disclaimer-modal-card">
+      <h2 id="disclaimerTitle">Before you continue</h2>
+      <p>
+        <strong>AWS Regionator</strong> is an independent, unofficial tool. It is not affiliated with, maintained, or endorsed by Amazon Web Services, Inc.
+      </p>
+      <p>
+        Region metadata in <code>regions.json</code> is community-curated and may be incomplete or outdated. Live service and IP data are fetched from public AWS endpoints with no guarantee of availability or accuracy.
+      </p>
+      <p class="disclaimer-modal-note">
+        Use this tool for reference only. Verify anything critical against official AWS sources.
+      </p>
+      <button type="button" id="disclaimerDismiss" class="action-btn accent disclaimer-modal-btn">I understand — continue</button>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>
