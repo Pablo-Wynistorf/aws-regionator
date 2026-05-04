@@ -27,6 +27,12 @@ const els = {
   refreshBtn: document.getElementById("refreshBtn"),
   liveStatus: document.getElementById("liveStatus"),
   coverageAlert: document.getElementById("coverageAlert"),
+  globeSvg: document.getElementById("globeSvg"),
+  globeTooltip: document.getElementById("globeTooltip"),
+  globeLegend: document.getElementById("globeLegend"),
+  globeSection: document.getElementById("globeSection"),
+  globeToggle: document.getElementById("globeToggle"),
+  globeStage: document.getElementById("globeStage"),
 };
 
 // ---------- Data loading ----------
@@ -872,9 +878,494 @@ function showIpServices(regionCode) {
   });
 }
 
-// ---------- Events ----------
+// ---------- World map / Globe ----------
+//
+// Lightweight orthographic-projection globe rendered as SVG.
+// No external dependencies — coordinates are embedded below, keyed by airport
+// code so they stay in sync with regions.json. Country outlines are omitted
+// intentionally (keeps the app offline-capable and zero-dependency); the
+// graticule grid gives enough geographic context.
 
-// Global click handler for [data-copy] elements.
+// Airport code -> [longitude, latitude] in degrees.
+// Coordinates are approximate (city-level) and are only used to place a dot
+// on a sphere; precise siting isn't needed.
+const AIRPORT_COORDS = {
+  AKL: [174.79, -36.85],  // Auckland
+  ALE: [-104.07, 30.37],  // Alpine, TX
+  APA: [-104.85, 39.57],  // Aurora / Denver, CO
+  ARN: [17.92, 59.65],    // Stockholm
+  BAH: [50.64, 26.27],    // Bahrain
+  BJS: [116.60, 40.08],   // Beijing
+  BKK: [100.75, 13.68],   // Bangkok
+  BOM: [72.87, 19.09],    // Mumbai
+  BPM: [78.48, 17.45],    // Hyderabad / Begumpet
+  CDG: [2.55, 49.01],     // Paris
+  CGK: [106.66, -6.13],   // Jakarta
+  CMH: [-82.89, 39.99],   // Columbus, OH
+  CPT: [18.60, -33.97],   // Cape Town
+  DCA: [-77.46, 39.04],   // Ashburn, VA (IAD-area surrogate)
+  DUB: [-6.27, 53.42],    // Dublin
+  DXB: [55.36, 25.25],    // Dubai
+  FFZ: [-111.73, 33.46],  // Phoenix / Mesa, AZ
+  FRA: [8.57, 50.03],     // Frankfurt
+  GRU: [-46.47, -23.43],  // São Paulo
+  HKG: [113.93, 22.30],   // Hong Kong
+  HYD: [78.43, 17.24],    // Hyderabad
+  IAD: [-77.46, 38.95],   // Ashburn, VA
+  ICN: [126.45, 37.46],   // Seoul / Incheon
+  KIX: [135.23, 34.43],   // Osaka / Kansai
+  KUL: [101.71, 2.74],    // Kuala Lumpur
+  LCK: [-82.93, 39.81],   // Columbus / Rickenbacker, OH
+  LHR: [-0.45, 51.47],    // London / Heathrow
+  LTW: [-76.41, 39.32],   // Maryland
+  LUX: [6.21, 49.63],     // Luxembourg
+  MEL: [144.84, -37.67],  // Melbourne
+  MXP: [8.72, 45.63],     // Milan / Malpensa
+  NCL: [-1.69, 55.04],    // Newcastle
+  NRT: [140.39, 35.77],   // Tokyo / Narita
+  OSU: [-83.07, 40.08],   // Columbus / OSU, OH
+  PDT: [-118.84, 45.70],  // Boardman/Pendleton, OR
+  PDX: [-119.70, 45.84],  // Boardman, OR
+  PEK: [116.60, 40.08],   // Beijing
+  QRO: [-100.19, 20.62],  // Querétaro
+  RUH: [46.70, 24.96],    // Riyadh
+  SCL: [-70.79, -33.39],  // Santiago
+  SDV: [34.78, 32.11],    // Tel Aviv / Sde Dov
+  SEA: [-122.31, 47.45],  // Seattle
+  SFO: [-121.89, 37.37],  // San Jose (region is N. California)
+  SIN: [103.99, 1.36],    // Singapore
+  SYD: [151.18, -33.94],  // Sydney
+  THF: [13.40, 52.47],    // Berlin / Tempelhof
+  TLV: [34.89, 32.01],    // Tel Aviv
+  TPE: [121.23, 25.08],   // Taipei
+  YUL: [-73.75, 45.47],   // Montreal
+  YYC: [-114.02, 51.11],  // Calgary
+  ZAZ: [-1.29, 41.67],    // Zaragoza
+  ZHY: [106.25, 37.79],   // Zhongwei / Ningxia
+  ZRH: [8.55, 47.46],     // Zurich
+};
+
+// Scope -> fill color. Mirrors the scope badge palette roughly.
+const SCOPE_COLORS = {
+  "commercial":         "#3fb950", // green  — always-on
+  "commercial-optin":   "#58a6ff", // blue   — opt-in
+  "govcloud":           "#a371f7", // purple
+  "china":              "#f85149", // red    — distinct partition
+  "iso":                "#d29922", // amber
+  "sovereign":          "#ff9900", // AWS orange
+  "retail":             "#8b949e", // grey   — internal
+};
+
+const SCOPE_LABELS = {
+  "commercial":         "Commercial",
+  "commercial-optin":   "Opt-in",
+  "govcloud":           "GovCloud",
+  "china":              "China",
+  "iso":                "ISO",
+  "sovereign":          "Sovereign",
+  "retail":             "Retail",
+};
+
+const globe = {
+  // Rotation in degrees: [lambda (lon), phi (lat)]. Positive lambda rotates west.
+  rotation: [-20, -20],
+  radius: 220,          // sphere radius in SVG viewport units (viewBox is 520x520)
+  // Status-based dot size
+  dotRadius: 4.2,
+  draggedSinceMousedown: false,
+  dragging: false,
+  dragStart: null,      // { x, y, lambda, phi }
+  hoveredRegion: null,
+  worldRings: null,     // array of [[lon, lat], ...] rings, loaded async
+};
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// Orthographic projection: project (lon, lat) on a sphere to 2D given
+// current rotation. Returns { x, y, visible } where visible=false means
+// the point is on the far side of the globe.
+function project(lon, lat) {
+  const lambda = (lon + globe.rotation[0]) * Math.PI / 180;
+  const phi = lat * Math.PI / 180;
+  const phi0 = globe.rotation[1] * Math.PI / 180;
+
+  const cosPhi = Math.cos(phi);
+  const x = cosPhi * Math.sin(lambda);
+  const y = Math.sin(phi) * Math.cos(phi0) - cosPhi * Math.cos(lambda) * Math.sin(phi0);
+  // z > 0 means front-facing
+  const z = Math.sin(phi) * Math.sin(phi0) + cosPhi * Math.cos(lambda) * Math.cos(phi0);
+
+  return {
+    x: x * globe.radius,
+    y: -y * globe.radius,
+    visible: z > 0,
+  };
+}
+
+// Build a great-circle path (meridian or parallel) by sampling points.
+// Returns an SVG path 'd' string. Splits the path into visible segments
+// so backside arcs don't render.
+function greatCirclePath(pointsLonLat) {
+  let d = "";
+  let inVisible = false;
+  for (const [lon, lat] of pointsLonLat) {
+    const p = project(lon, lat);
+    if (p.visible) {
+      d += (inVisible ? "L" : "M") + p.x.toFixed(2) + "," + p.y.toFixed(2) + " ";
+      inVisible = true;
+    } else {
+      inVisible = false;
+    }
+  }
+  return d.trim();
+}
+
+// Project and also return the sphere-space z coordinate (for horizon clipping).
+function projectFull(lon, lat) {
+  const lambda = (lon + globe.rotation[0]) * Math.PI / 180;
+  const phi = lat * Math.PI / 180;
+  const phi0 = globe.rotation[1] * Math.PI / 180;
+
+  const cosPhi = Math.cos(phi);
+  const sx = cosPhi * Math.sin(lambda);
+  const sy = Math.sin(phi) * Math.cos(phi0) - cosPhi * Math.cos(lambda) * Math.sin(phi0);
+  const z = Math.sin(phi) * Math.sin(phi0) + cosPhi * Math.cos(lambda) * Math.cos(phi0);
+
+  return { z, x: sx * globe.radius, y: -sy * globe.radius };
+}
+
+// Build an SVG path for a country ring with horizon clipping.
+// Segments that cross the visible/hidden boundary are clipped at z = 0 so
+// lines never cut across the sphere. Because we only stroke (no fill), we
+// don't need to close the path along the horizon — broken subpaths are fine.
+function countryRingPath(ring) {
+  if (!ring || ring.length < 2) return "";
+  const pts = ring.map(([lon, lat]) => projectFull(lon, lat));
+  let d = "";
+  let inSegment = false;
+  const moveTo = (x, y) => { d += "M" + x.toFixed(2) + "," + y.toFixed(2) + " "; inSegment = true; };
+  const lineTo = (x, y) => { d += "L" + x.toFixed(2) + "," + y.toFixed(2) + " "; };
+  const intersect = (a, b) => {
+    const t = a.z / (a.z - b.z);
+    return [a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)];
+  };
+
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const av = a.z >= 0;
+    const bv = b.z >= 0;
+
+    if (av && bv) {
+      if (!inSegment) moveTo(a.x, a.y);
+      lineTo(b.x, b.y);
+    } else if (av && !bv) {
+      if (!inSegment) moveTo(a.x, a.y);
+      const [cx, cy] = intersect(a, b);
+      lineTo(cx, cy);
+      inSegment = false;
+    } else if (!av && bv) {
+      const [cx, cy] = intersect(a, b);
+      moveTo(cx, cy);
+      lineTo(b.x, b.y);
+    } else {
+      inSegment = false;
+    }
+  }
+  return d.trim();
+}
+
+function buildGraticule() {
+  const paths = [];
+  // Meridians every 30°
+  for (let lon = -180; lon < 180; lon += 30) {
+    const pts = [];
+    for (let lat = -90; lat <= 90; lat += 5) pts.push([lon, lat]);
+    paths.push({ d: greatCirclePath(pts), equator: false });
+  }
+  // Parallels every 30°
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const pts = [];
+    for (let lon = -180; lon <= 180; lon += 5) pts.push([lon, lat]);
+    paths.push({ d: greatCirclePath(pts), equator: lat === 0 });
+  }
+  // Explicit equator
+  const eq = [];
+  for (let lon = -180; lon <= 180; lon += 5) eq.push([lon, 0]);
+  paths.push({ d: greatCirclePath(eq), equator: true });
+  return paths;
+}
+
+function renderGlobe() {
+  if (!els.globeSvg) return;
+  const svg = els.globeSvg;
+  // Clear
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  // Sphere
+  const sphere = document.createElementNS(SVG_NS, "circle");
+  sphere.setAttribute("class", "globe-sphere");
+  sphere.setAttribute("cx", "0");
+  sphere.setAttribute("cy", "0");
+  sphere.setAttribute("r", String(globe.radius));
+  svg.appendChild(sphere);
+
+  // Graticule
+  const graticuleGroup = document.createElementNS(SVG_NS, "g");
+  for (const g of buildGraticule()) {
+    if (!g.d) continue;
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("class", g.equator ? "globe-graticule globe-equator" : "globe-graticule");
+    path.setAttribute("d", g.d);
+    graticuleGroup.appendChild(path);
+  }
+  svg.appendChild(graticuleGroup);
+
+  // Country outlines
+  if (globe.worldRings) {
+    const landGroup = document.createElementNS(SVG_NS, "g");
+    landGroup.setAttribute("class", "globe-land");
+    for (const ring of globe.worldRings) {
+      const d = countryRingPath(ring);
+      if (!d) continue;
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("class", "globe-country");
+      path.setAttribute("d", d);
+      landGroup.appendChild(path);
+    }
+    svg.appendChild(landGroup);
+  }
+
+  // Region dots
+  const dotsGroup = document.createElementNS(SVG_NS, "g");
+  const backGroup = document.createElementNS(SVG_NS, "g");
+  const frontGroup = document.createElementNS(SVG_NS, "g");
+  backGroup.setAttribute("class", "globe-dots-back");
+  frontGroup.setAttribute("class", "globe-dots-front");
+
+  const currentQuery = (els.search?.value || "").trim();
+  const activeCodes = new Set(
+    currentQuery ? search(currentQuery).map((r) => r.regionCode) : []
+  );
+
+  for (const region of state.regions) {
+    const coords = AIRPORT_COORDS[region.airport];
+    if (!coords) continue;
+    const [lon, lat] = coords;
+    const p = project(lon, lat);
+
+    const dot = document.createElementNS(SVG_NS, "circle");
+    const isBuild = region.status === "BUILD";
+    const isActive = activeCodes.has(region.regionCode);
+    dot.setAttribute("cx", p.x.toFixed(2));
+    dot.setAttribute("cy", p.y.toFixed(2));
+    dot.setAttribute("r", String(isActive ? globe.dotRadius + 2 : globe.dotRadius));
+    dot.setAttribute("fill", SCOPE_COLORS[region.scope] || "#8b949e");
+    dot.setAttribute("stroke", "#0a1320");
+    dot.setAttribute("stroke-width", "1");
+    dot.setAttribute("data-region", region.regionCode);
+    let cls = "globe-dot";
+    if (!p.visible) cls += " back";
+    if (isActive) cls += " active";
+    if (isBuild) dot.setAttribute("opacity", "0.75");
+    dot.setAttribute("class", cls);
+    (p.visible ? frontGroup : backGroup).appendChild(dot);
+  }
+
+  svg.appendChild(backGroup);
+  svg.appendChild(dotsGroup);
+  svg.appendChild(frontGroup);
+}
+
+function renderGlobeLegend() {
+  if (!els.globeLegend) return;
+  const scopesInUse = new Set(state.regions.map((r) => r.scope).filter(Boolean));
+  const order = ["commercial", "commercial-optin", "govcloud", "china", "iso", "sovereign", "retail"];
+  const items = order
+    .filter((s) => scopesInUse.has(s))
+    .map((s) => `
+      <span class="globe-legend-item">
+        <span class="globe-legend-swatch" style="background:${SCOPE_COLORS[s]}"></span>
+        ${escapeHtml(SCOPE_LABELS[s] || s)}
+      </span>
+    `).join("");
+  els.globeLegend.innerHTML = items;
+}
+
+function showGlobeTooltip(region, clientX, clientY) {
+  if (!els.globeTooltip || !els.globeStage) return;
+  const stageRect = els.globeStage.getBoundingClientRect();
+  const x = clientX - stageRect.left;
+  const y = clientY - stageRect.top;
+  const live = state.liveData?.get(region.regionCode);
+  const sub = [
+    region.city && region.country ? `${region.city}, ${region.country}` : region.city || region.country,
+    live ? `${live.serviceCount} services` : null,
+    region.status && region.status !== "GA" ? region.status : null,
+  ].filter(Boolean).join(" · ");
+  els.globeTooltip.innerHTML = `
+    <strong>${escapeHtml(region.airport)}</strong> ${escapeHtml(region.regionCode)}
+    <span class="tt-sub">${escapeHtml(region.longName || "")}</span>
+    ${sub ? `<span class="tt-sub">${escapeHtml(sub)}</span>` : ""}
+  `;
+  els.globeTooltip.style.left = x + "px";
+  els.globeTooltip.style.top = y + "px";
+  els.globeTooltip.classList.remove("hidden");
+}
+
+function hideGlobeTooltip() {
+  if (els.globeTooltip) els.globeTooltip.classList.add("hidden");
+}
+
+function initGlobe() {
+  if (!els.globeSvg) return;
+  renderGlobeLegend();
+  renderGlobe();
+
+  // Restore collapsed state from cookie / localStorage
+  applyGlobeCollapsedFromStorage();
+
+  // Load country outlines in the background — globe renders without them first,
+  // then re-renders once the data arrives.
+  fetch("world-110m.json")
+    .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+    .then((data) => {
+      globe.worldRings = data.rings || [];
+      renderGlobe();
+    })
+    .catch((err) => {
+      console.warn("Could not load world map outlines:", err);
+      // Non-fatal — globe still works with dots + graticule only.
+    });
+
+  // Drag to rotate (mouse + touch via pointer events)
+  const onPointerDown = (e) => {
+    globe.dragging = true;
+    globe.draggedSinceMousedown = false;
+    globe.dragStart = {
+      x: e.clientX,
+      y: e.clientY,
+      lambda: globe.rotation[0],
+      phi: globe.rotation[1],
+    };
+    els.globeSvg.classList.add("dragging");
+    els.globeSvg.setPointerCapture?.(e.pointerId);
+    hideGlobeTooltip();
+  };
+
+  const onPointerMove = (e) => {
+    // Hover handling (not dragging)
+    if (!globe.dragging) {
+      const target = e.target.closest?.("[data-region]");
+      if (target) {
+        const code = target.getAttribute("data-region");
+        const region = state.regions.find((r) => r.regionCode === code);
+        if (region) {
+          if (globe.hoveredRegion !== code) {
+            globe.hoveredRegion = code;
+          }
+          showGlobeTooltip(region, e.clientX, e.clientY);
+          return;
+        }
+      }
+      if (globe.hoveredRegion) {
+        globe.hoveredRegion = null;
+        hideGlobeTooltip();
+      }
+      return;
+    }
+
+    // Drag rotation
+    const dx = e.clientX - globe.dragStart.x;
+    const dy = e.clientY - globe.dragStart.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) globe.draggedSinceMousedown = true;
+    // Rotation sensitivity scales inversely with zoom. At the default radius
+    // of 220, k ≈ 0.4 (1 pixel ≈ 0.4°). Zoom in and we turn more slowly so the
+    // globe doesn't whip past the area you're trying to look at.
+    const k = 0.4 * (220 / globe.radius);
+    globe.rotation[0] = globe.dragStart.lambda + dx * k;
+    // Clamp latitude to avoid flipping
+    globe.rotation[1] = Math.max(-89, Math.min(89, globe.dragStart.phi + dy * k));
+    renderGlobe();
+  };
+
+  const onPointerUp = (e) => {
+    if (!globe.dragging) return;
+    globe.dragging = false;
+    els.globeSvg.classList.remove("dragging");
+    els.globeSvg.releasePointerCapture?.(e.pointerId);
+
+    // Treat as click if the pointer barely moved
+    if (!globe.draggedSinceMousedown) {
+      const target = e.target.closest?.("[data-region]");
+      if (target) {
+        const code = target.getAttribute("data-region");
+        // Filter the region list to just this region by searching by its code
+        els.search.value = code;
+        render();
+        renderGlobe();
+        // Scroll the matching card into view
+        setTimeout(() => {
+          els.results.querySelector(".region-card")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 50);
+      }
+    }
+  };
+
+  els.globeSvg.addEventListener("pointerdown", onPointerDown);
+  els.globeSvg.addEventListener("pointermove", onPointerMove);
+  els.globeSvg.addEventListener("pointerup", onPointerUp);
+  els.globeSvg.addEventListener("pointerleave", () => {
+    if (!globe.dragging) hideGlobeTooltip();
+  });
+
+  // Wheel to zoom (adjust sphere radius within a sane range)
+  els.globeSvg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    // Multiplicative zoom so high zoom levels still feel responsive
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    globe.radius = Math.max(120, Math.min(4000, globe.radius * factor));
+    renderGlobe();
+  }, { passive: false });
+
+  // Collapse/expand toggle
+  els.globeToggle?.addEventListener("click", () => {
+    const collapsed = els.globeSection.classList.toggle("collapsed");
+    els.globeToggle.textContent = collapsed ? "Show" : "Hide";
+    els.globeToggle.setAttribute("aria-expanded", String(!collapsed));
+    persistGlobeCollapsed(collapsed);
+    if (!collapsed) renderGlobe();
+  });
+}
+
+// Persist the "Hide"/"Show" state so the user's preference survives reloads.
+const GLOBE_COLLAPSED_KEY = "regionator_globe_collapsed";
+const GLOBE_COLLAPSED_MAX_AGE_DAYS = 365;
+
+function applyGlobeCollapsedFromStorage() {
+  let collapsed = false;
+  if (getCookie(GLOBE_COLLAPSED_KEY) === "1") {
+    collapsed = true;
+  } else {
+    try {
+      if (window.localStorage.getItem(GLOBE_COLLAPSED_KEY) === "1") collapsed = true;
+    } catch (_) { /* ignore */ }
+  }
+  if (!collapsed) return;
+  els.globeSection.classList.add("collapsed");
+  if (els.globeToggle) {
+    els.globeToggle.textContent = "Show";
+    els.globeToggle.setAttribute("aria-expanded", "false");
+  }
+}
+
+function persistGlobeCollapsed(collapsed) {
+  const value = collapsed ? "1" : "0";
+  setCookie(GLOBE_COLLAPSED_KEY, value, GLOBE_COLLAPSED_MAX_AGE_DAYS);
+  try { window.localStorage.setItem(GLOBE_COLLAPSED_KEY, value); } catch (_) { /* ignore */ }
+}
+
+// ---------- Events ----------
 // Runs in capture phase so it takes priority over inner handlers.
 document.addEventListener("click", async (e) => {
   const copyEl = e.target.closest("[data-copy]");
@@ -896,10 +1387,14 @@ document.addEventListener("click", async (e) => {
   }
 }, true);
 
-els.search.addEventListener("input", render);
+els.search.addEventListener("input", () => {
+  render();
+  renderGlobe();
+});
 els.refreshBtn.addEventListener("click", async () => {
   await loadLiveData();
   render();
+  renderGlobe();
 });
 
 // Delegated click handler for card action buttons
@@ -962,11 +1457,15 @@ if (els.coverageAlert) {
   try {
     await loadLocalRegions();
     render();
+    initGlobe();
   } catch (err) {
     els.results.innerHTML = `<div class="live-status visible error">Failed to load regions.json: ${escapeHtml(err.message)}</div>`;
     return;
   }
 
   // Fetch live data in the background — don't block first render.
-  loadLiveData({ silent: false }).then(render);
+  loadLiveData({ silent: false }).then(() => {
+    render();
+    renderGlobe();
+  });
 })();

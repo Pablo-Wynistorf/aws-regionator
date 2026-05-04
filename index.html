@@ -34,6 +34,23 @@
 
     <div id="liveStatus" class="live-status"></div>
 
+    <section id="globeSection" class="globe-section" aria-label="World map of AWS regions">
+      <div class="globe-header">
+        <div>
+          <h2 class="globe-title">World map</h2>
+          <p class="globe-hint">Drag to rotate · scroll to zoom · click a dot to filter</p>
+        </div>
+        <div class="globe-controls">
+          <button type="button" id="globeToggle" class="action-btn" aria-expanded="true" aria-controls="globeStage">Hide</button>
+        </div>
+      </div>
+      <div id="globeStage" class="globe-stage">
+        <svg id="globeSvg" class="globe-svg" viewBox="-260 -260 520 520" aria-hidden="true"></svg>
+        <div id="globeTooltip" class="globe-tooltip hidden" role="tooltip"></div>
+        <div class="globe-legend" id="globeLegend"></div>
+      </div>
+    </section>
+
     <div id="results" class="results" aria-live="polite"></div>
 
     <div id="emptyState" class="empty-state hidden">

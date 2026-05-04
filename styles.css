@@ -968,3 +968,207 @@ body.no-scroll {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* ---------- World map / Globe ---------- */
+
+.globe-section {
+  margin-bottom: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.globe-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.globe-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.globe-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.globe-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.globe-stage {
+  position: relative;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(255, 153, 0, 0.05), transparent 60%),
+    radial-gradient(ellipse at 70% 80%, rgba(88, 166, 255, 0.05), transparent 60%),
+    var(--bg);
+  padding: 0.5rem;
+  min-height: 380px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.globe-section.collapsed .globe-stage {
+  display: none;
+}
+
+.globe-svg {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  height: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.globe-svg.dragging {
+  cursor: grabbing;
+}
+
+.globe-sphere {
+  fill: #0a1320;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.globe-country {
+  fill: none;
+  stroke: rgba(200, 215, 230, 0.55);
+  stroke-width: 0.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.globe-graticule {
+  fill: none;
+  stroke: rgba(139, 148, 158, 0.18);
+  stroke-width: 0.5;
+  pointer-events: none;
+}
+
+.globe-equator {
+  stroke: rgba(139, 148, 158, 0.35);
+  stroke-dasharray: 2 3;
+}
+
+.globe-dot {
+  cursor: pointer;
+  transition: r 0.1s ease, stroke-width 0.1s ease;
+}
+
+.globe-dot.back {
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.globe-dot:hover,
+.globe-dot.hover {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.globe-dot.active {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.globe-label {
+  font-family: "SF Mono", Monaco, Consolas, monospace;
+  font-size: 8px;
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.globe-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  max-width: 240px;
+  z-index: 50;
+  transform: translate(-50%, calc(-100% - 8px));
+  white-space: nowrap;
+}
+
+.globe-tooltip.hidden {
+  display: none;
+}
+
+.globe-tooltip strong {
+  color: var(--accent);
+  font-family: "SF Mono", Monaco, Consolas, monospace;
+}
+
+.globe-tooltip .tt-sub {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+.globe-legend {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  background: rgba(15, 20, 25, 0.75);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  max-width: calc(100% - 1.5rem);
+}
+
+.globe-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.globe-legend-swatch {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@media (max-width: 600px) {
+  .globe-stage {
+    min-height: 300px;
+  }
+  .globe-legend {
+    position: static;
+    margin-top: 0.5rem;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+}
